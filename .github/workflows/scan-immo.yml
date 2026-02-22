@@ -1,0 +1,46 @@
+name: 🏢 Scan Immo Quotidien
+
+on:
+  schedule:
+    # Tous les jours à 8h00 heure de Paris (7h UTC)
+    - cron: "0 7 * * *"
+  workflow_dispatch:  # Permet de lancer manuellement depuis GitHub
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Récupérer le code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🐍 Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 📦 Installer les dépendances
+        run: pip install -r requirements.txt
+
+      - name: 💾 Restaurer l'historique des annonces vues
+        uses: actions/cache@v4
+        with:
+          path: annonces_vues.json
+          key: annonces-vues-${{ github.run_id }}
+          restore-keys: |
+            annonces-vues-
+
+      - name: 🔍 Lancer le scan
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
+        run: python scraper.py
+
+      - name: 💾 Sauvegarder l'historique des annonces vues
+        uses: actions/upload-artifact@v4
+        with:
+          name: annonces-vues
+          path: annonces_vues.json
+          retention-days: 90
