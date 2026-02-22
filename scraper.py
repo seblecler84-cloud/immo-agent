@@ -20,14 +20,13 @@ import re
 
 VILLES = [
     "narbonne",
-    "beziers",
     "carcassonne",
     "lezignan-corbieres",
     "port-la-nouvelle",
     "gruissan",
 ]
 
-RENTABILITE_MIN = 10.0       # % brut minimum
+RENTABILITE_MIN = 3.0        # % brut minimum
 PRIX_MAX = 600_000           # € prix maximum
 PRIX_MIN = 50_000            # € prix minimum
 
@@ -60,7 +59,7 @@ MOTS_CLES_IMMEUBLE = [
 # ─────────────────────────────────────────────
 
 LOYER_M2_PAR_VILLE = {
-    "narbonne": 9.5,
+    "narbonne": 12,
     "beziers": 8.5,
     "carcassonne": 8.0,
     "lezignan-corbieres": 7.5,
@@ -196,12 +195,12 @@ def scraper_leboncoin(ville):
 
 
 def envoyer_email(annonces_qualifiees):
-    """Envoie un email récapitulatif des annonces qualifiées."""
-    if not annonces_qualifiees:
-        return
+    """Envoie un email récapitulatif des annonces qualifiées (ou un rapport vide)."""
     
     if not GMAIL_EXPEDITEUR or not GMAIL_MOT_DE_PASSE:
         print("  [!] Gmail non configuré, affichage console uniquement")
+        if not annonces_qualifiees:
+            print("  Aucun bien trouvé aujourd'hui.")
         for a in annonces_qualifiees:
             print(f"\n✅ {a['titre']}")
             print(f"   Prix : {a['prix']:,} € | Surface : {a['surface']} m²")
@@ -213,16 +212,26 @@ def envoyer_email(annonces_qualifiees):
 
     # Construction de l'email HTML
     date_str = datetime.now().strftime("%d/%m/%Y à %Hh%M")
+    nb = len(annonces_qualifiees)
     
     html = f"""
     <html><body style="font-family: Arial, sans-serif; max-width: 700px; margin: auto;">
-    <h2 style="color: #2c3e50;">🏢 Agent Immo — {len(annonces_qualifiees)} bien(s) trouvé(s)</h2>
+    <h2 style="color: #2c3e50;">🏢 Agent Immo — {nb} bien(s) trouvé(s)</h2>
     <p style="color: #7f8c8d;">Scan du {date_str} | Critère : Renta brute ≥ {RENTABILITE_MIN}%</p>
     <hr>
     """
+
+    if not annonces_qualifiees:
+        html += """
+        <div style="text-align:center; padding: 40px; color: #95a5a6;">
+            <p style="font-size: 2em;">😴</p>
+            <p style="font-size: 1.1em;">Aucun immeuble de rapport ne correspond aux critères aujourd'hui.</p>
+            <p>Le scan reprendra demain matin à 8h.</p>
+        </div>
+        """
     
     for a in annonces_qualifiees:
-        couleur = "#27ae60" if a["rentabilite"] >= 12 else "#f39c12"
+        couleur = "#27ae60" if a["rentabilite"] >= 8 else "#f39c12" if a["rentabilite"] >= 5 else "#e67e22"
         html += f"""
         <div style="border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin: 16px 0;">
             <h3 style="margin: 0 0 8px 0; color: #2c3e50;">{a['titre']}</h3>
@@ -307,10 +316,7 @@ def main():
     print(f"\n{'='*50}")
     print(f"Résultat : {len(annonces_qualifiees)} bien(s) qualifié(s) sur {total_scrapees} scrapé(s)")
     
-    if annonces_qualifiees:
-        envoyer_email(annonces_qualifiees)
-    else:
-        print("Aucun bien ne correspond aux critères aujourd'hui.")
+    envoyer_email(annonces_qualifiees)
     
     print(f"{'='*50}\n")
 
