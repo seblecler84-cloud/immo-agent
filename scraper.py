@@ -20,6 +20,7 @@ import re
 
 VILLES = [
     "narbonne",
+    "beziers",
     "carcassonne",
     "lezignan-corbieres",
     "port-la-nouvelle",
@@ -59,7 +60,7 @@ MOTS_CLES_IMMEUBLE = [
 # ─────────────────────────────────────────────
 
 LOYER_M2_PAR_VILLE = {
-    "narbonne": 12,
+    "narbonne": 9.5,
     "beziers": 8.5,
     "carcassonne": 8.0,
     "lezignan-corbieres": 7.5,
@@ -117,63 +118,51 @@ def calculer_rentabilite(prix, surface, ville):
 
 
 def scraper_leboncoin(ville):
-    """Scrape les annonces LeBonCoin pour une ville donnée."""
+    """Récupère les annonces LeBonCoin via le flux RSS officiel (non bloqué)."""
     annonces = []
-    
+
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept-Language": "fr-FR,fr;q=0.9",
+        "User-Agent": "Mozilla/5.0 (compatible; RSS reader)",
+        "Accept": "application/rss+xml, application/xml, text/xml",
     }
-    
-    # URL de recherche LeBonCoin - catégorie immobilier, section ventes
-    url = f"https://www.leboncoin.fr/recherche?category=9&locations={ville}&real_estate_type=6&price=50000-600000"
-    
+
+    # Flux RSS officiel LeBonCoin — catégorie ventes immobilières
+    url = f"https://www.leboncoin.fr/rss/ventes_immobilieres.htm?location={ville}&ros=1"
+
     try:
         response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
-        soup = BeautifulSoup(response.text, "html.parser")
-        
-        # LeBonCoin utilise du JSON embarqué dans la page
-        script_tag = soup.find("script", {"id": "__NEXT_DATA__"})
-        if not script_tag:
-            print(f"  [!] Structure LeBonCoin non trouvée pour {ville}")
-            return annonces
+        soup = BeautifulSoup(response.text, "xml")
 
-        data = json.loads(script_tag.string)
-        
-        try:
-            listings = data["props"]["pageProps"]["searchData"]["ads"]
-        except (KeyError, TypeError):
-            print(f"  [!] Pas d'annonces trouvées pour {ville}")
-            return annonces
+        items = soup.find_all("item")
+        print(f"   → {len(items)} annonce(s) brute(s) dans le flux RSS")
 
-        for item in listings:
+        for item in items:
             try:
-                titre = item.get("subject", "")
-                prix = item.get("price", [None])
-                if isinstance(prix, list):
-                    prix = prix[0] if prix else None
-                url_annonce = "https://www.leboncoin.fr/ad/" + str(item.get("list_id", ""))
-                
-                # Attributs
-                attributs = {a["key"]: a.get("value_label", a.get("values", [""])[0]) 
-                             for a in item.get("attributes", [])}
-                surface = None
-                surface_str = attributs.get("square", "")
-                if surface_str:
-                    surface = extraire_surface(str(surface_str) + " m²")
-                
-                description = item.get("body", "")
-                
+                titre = item.find("title").get_text(strip=True) if item.find("title") else ""
+                url_annonce = item.find("link").get_text(strip=True) if item.find("link") else ""
+                description_html = item.find("description").get_text(strip=True) if item.find("description") else ""
+
+                # Extraire le texte brut de la description HTML
+                desc_soup = BeautifulSoup(description_html, "html.parser")
+                description = desc_soup.get_text(separator=" ", strip=True)
+
+                # Extraire un ID unique depuis l'URL
+                annonce_id = url_annonce.split("/")[-1].split(".")[0] if url_annonce else ""
+
                 if not est_immeuble_de_rapport(titre, description):
                     continue
+
+                prix = extraire_prix(description) or extraire_prix(titre)
+                surface = extraire_surface(description) or extraire_surface(titre)
+
                 if not prix or not surface:
                     continue
                 if prix < PRIX_MIN or prix > PRIX_MAX:
                     continue
-                    
+
                 annonces.append({
-                    "id": str(item.get("list_id")),
+                    "id": annonce_id,
                     "titre": titre,
                     "prix": prix,
                     "surface": surface,
@@ -181,16 +170,14 @@ def scraper_leboncoin(ville):
                     "url": url_annonce,
                     "description": description[:300],
                 })
-                
+
             except Exception as e:
                 print(f"  [!] Erreur parsing annonce : {e}")
                 continue
 
     except requests.RequestException as e:
         print(f"  [!] Erreur réseau pour {ville} : {e}")
-    except json.JSONDecodeError as e:
-        print(f"  [!] Erreur JSON pour {ville} : {e}")
-    
+
     return annonces
 
 
